@@ -13,18 +13,14 @@ import * as fs from 'fs/promises'
 import * as os from 'os'
 import * as path from 'path'
 import {
-  generateCodeVerifier,
-  generateCodeChallenge,
-  generateState,
-} from '../../services/oauth/crypto.js'
-import {
   buildOpenAIAuthorizeUrl,
   exchangeOpenAICodeForTokens,
+  generateOpenAICodeVerifier,
+  generateOpenAIState,
   refreshOpenAITokens,
   isOpenAITokenExpired,
   normalizeOpenAITokens,
   withRefreshedAccessToken,
-  OPENAI_CODEX_OAUTH_PORT,
   OPENAI_CODEX_REDIRECT_PATH,
 } from '../../services/openaiAuth/client.js'
 import type { OpenAIOAuthTokenResponse } from '../../services/openaiAuth/types.js'
@@ -108,8 +104,8 @@ export class HahaOpenAIOAuthService {
   startSession({ serverPort }: { serverPort: number }): OpenAIOAuthSession {
     this.pruneExpiredSessions()
 
-    const codeVerifier = generateCodeVerifier()
-    const state = generateState()
+    const codeVerifier = generateOpenAICodeVerifier()
+    const state = generateOpenAIState()
 
     const redirectUri = `http://localhost:${serverPort}${OPENAI_CODEX_REDIRECT_PATH}`
     const authorizeUrl = buildOpenAIAuthorizeUrl({

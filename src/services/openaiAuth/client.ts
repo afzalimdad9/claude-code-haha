@@ -1,3 +1,4 @@
+import { randomBytes } from 'crypto'
 import { generateCodeChallenge } from '../oauth/crypto.js'
 import type {
   OpenAIJwtClaims,
@@ -14,6 +15,14 @@ export const OPENAI_CODEX_REDIRECT_PATH = '/auth/callback'
 
 const DEFAULT_TOKEN_LIFETIME_MS = 3600 * 1000
 
+export function generateOpenAIState(): string {
+  return randomBytes(32).toString('hex')
+}
+
+export function generateOpenAICodeVerifier(): string {
+  return randomBytes(64).toString('hex')
+}
+
 export function buildOpenAIAuthorizeUrl(input: {
   redirectUri: string
   codeVerifier: string
@@ -29,7 +38,6 @@ export function buildOpenAIAuthorizeUrl(input: {
     id_token_add_organizations: 'true',
     codex_cli_simplified_flow: 'true',
     state: input.state,
-    originator: 'opencode',
   })
 
   return `${OPENAI_AUTH_ISSUER}/oauth/authorize?${params.toString()}`

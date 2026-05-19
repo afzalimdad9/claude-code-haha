@@ -113,8 +113,8 @@ describe('HahaOpenAIOAuthService — session management', () => {
 
   test('startSession creates session with PKCE + state', () => {
     const session = service.startSession({ serverPort: 54321 })
-    expect(session.state).toMatch(/^[A-Za-z0-9_-]{43}$/)
-    expect(session.codeVerifier).toMatch(/^[A-Za-z0-9_-]{43}$/)
+    expect(session.state).toMatch(/^[a-f0-9]{64}$/)
+    expect(session.codeVerifier).toMatch(/^[a-f0-9]{128}$/)
     expect(session.authorizeUrl).toContain('code_challenge_method=S256')
     expect(session.authorizeUrl).toContain(
       `state=${encodeURIComponent(session.state)}`,
@@ -125,6 +125,7 @@ describe('HahaOpenAIOAuthService — session management', () => {
     expect(session.authorizeUrl).toContain(
       encodeURIComponent('http://localhost:54321/auth/callback'),
     )
+    expect(session.authorizeUrl).not.toContain('originator=')
   })
 
   test('getSession returns stored session by state', () => {

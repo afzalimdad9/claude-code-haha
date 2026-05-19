@@ -83,7 +83,8 @@ describe('POST /api/haha-openai-oauth/start', () => {
     expect(data.authorizeUrl).toContain(
       encodeURIComponent('http://localhost:54321/auth/callback'),
     )
-    expect(data.state).toMatch(/^[A-Za-z0-9_-]+$/)
+    expect(data.authorizeUrl).not.toContain('originator=')
+    expect(data.state).toMatch(/^[a-f0-9]{64}$/)
   })
 
   test('400 if serverPort missing', async () => {
