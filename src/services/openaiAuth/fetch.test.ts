@@ -88,4 +88,46 @@ describe('buildOpenAICodexFetch', () => {
       content: [{ type: 'text', text: 'ok' }],
     })
   })
+
+  test('uses streamed Codex responses even for non-streaming Anthropic callers', async () => {
+    const upstreamCalls: Array<{
+      url: string
+      body: Record<string, unknown>
+    }> = []
+    const fetchOverride: typeof fetch = async (input, init) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+      upstreamCalls.push({
+        url: String(input),
+        body,
+      })
+      return new Response([
+        'event: response.completed',
+        'data: {"response":{"id":"resp_456","object":"response","created_at":1779118000,"model":"gpt-5.5","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"streamed ok"}]}],"usage":{"input_tokens":3,"output_tokens":2,"total_tokens":5}}}',
+        '',
+      ].join('\n'), {
+        headers: { 'Content-Type': 'text/event-stream' },
+      })
+    }
+
+    const openAIFetch = buildOpenAICodexFetch(fetchOverride, 'test')
+    const response = await openAIFetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      body: JSON.stringify({
+        model: 'gpt-5.5',
+        max_tokens: 64,
+        messages: [{ role: 'user', content: 'Say ok' }],
+      }),
+    })
+
+    expect(upstreamCalls).toHaveLength(1)
+    expect(upstreamCalls[0].url).toBe(OPENAI_CODEX_API_ENDPOINT)
+    expect(upstreamCalls[0].body.stream).toBe(true)
+    expect(response.status).toBe(200)
+    expect(response.headers.get('Content-Type')).toContain('application/json')
+    await expect(response.json()).resolves.toMatchObject({
+      type: 'message',
+      model: 'gpt-5.5',
+      content: [{ type: 'text', text: 'streamed ok' }],
+    })
+  })
 })
