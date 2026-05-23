@@ -27,6 +27,7 @@ beforeEach(async () => {
   originalH5PublicBaseUrl = process.env.CLAUDE_H5_PUBLIC_BASE_URL
   originalH5AutoPublicUrl = process.env.CLAUDE_H5_AUTO_PUBLIC_URL
   process.env.CLAUDE_CONFIG_DIR = tmpDir
+  delete process.env.CLAUDE_H5_AUTO_PUBLIC_URL
 })
 
 afterEach(async () => {
