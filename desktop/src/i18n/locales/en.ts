@@ -1221,10 +1221,12 @@ export const en = {
   // ─── Ask User Question ──────────────────────────────────────
   'question.needsInput': 'Claude needs your input',
   'question.answered': 'Answered',
+  'question.completed': 'Completed',
   'question.customResponse': 'Or type a custom response:',
   'question.typePlaceholder': 'Type your answer...',
   'question.submit': 'Submit',
   'question.answeredPrefix': 'Answered: ',
+  'question.resultPrefix': 'Result: ',
 
   // ─── Thinking Block ──────────────────────────────────────
   'thinking.label': 'Thinking',

@@ -44,8 +44,10 @@ const sessionSlashCommands = new Map<string, SessionSlashCommand[]>()
 
 /**
  * Timers for delayed session cleanup after client disconnect.
- * If a client reconnects within 5 minutes, the timer is cancelled.
+ * If a client reconnects before the timer fires, the timer is cancelled.
  */
+const CLIENT_DISCONNECT_CLEANUP_MS = 30_000
+const PENDING_PERMISSION_DISCONNECT_CLEANUP_MS = 30 * 60_000
 const sessionCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
 /**
@@ -152,6 +154,7 @@ export const handleWebSocket = {
 
     const msg: ServerMessage = { type: 'connected', sessionId }
     ws.send(JSON.stringify(msg))
+    replayPendingPermissionRequests(ws, sessionId)
   },
 
   message(ws: ServerWebSocket<WebSocketData>, rawMessage: string | Buffer) {
@@ -238,16 +241,17 @@ export const handleWebSocket = {
 
     computerUseApprovalService.cancelSession(sessionId)
 
-    // Schedule delayed cleanup: if the client doesn't reconnect within 30 seconds,
-    // stop the CLI subprocess to avoid leaking resources.
+    // Schedule delayed cleanup. Sessions waiting on user input need a longer
+    // grace period so transient renderer disconnects do not abort the prompt.
+    const cleanupDelayMs = getDisconnectCleanupDelayMs(sessionId)
     const cleanupTimer = setTimeout(() => {
       sessionCleanupTimers.delete(sessionId)
       if (!hasActiveClients(sessionId)) {
-        console.log(`[WS] Session ${sessionId} not reconnected after 30s, stopping CLI subprocess`)
+        console.log(`[WS] Session ${sessionId} not reconnected after ${cleanupDelayMs}ms, stopping CLI subprocess`)
         conversationService.stopSession(sessionId)
         cleanupSessionRuntimeState(sessionId)
       }
-    }, 30_000)
+    }, cleanupDelayMs)
     sessionCleanupTimers.set(sessionId, cleanupTimer)
   },
 
@@ -1478,6 +1482,28 @@ function sendMessage(ws: ServerWebSocket<WebSocketData>, message: ServerMessage)
 
 function sendError(ws: ServerWebSocket<WebSocketData>, message: string, code: string) {
   sendMessage(ws, { type: 'error', message, code })
+}
+
+function getDisconnectCleanupDelayMs(sessionId: string): number {
+  return conversationService.getPendingPermissionRequests(sessionId).length > 0
+    ? PENDING_PERMISSION_DISCONNECT_CLEANUP_MS
+    : CLIENT_DISCONNECT_CLEANUP_MS
+}
+
+function replayPendingPermissionRequests(
+  ws: ServerWebSocket<WebSocketData>,
+  sessionId: string,
+): void {
+  for (const request of conversationService.getPendingPermissionRequests(sessionId)) {
+    sendMessage(ws, {
+      type: 'permission_request',
+      requestId: request.requestId,
+      toolName: request.toolName,
+      ...(request.toolUseId ? { toolUseId: request.toolUseId } : {}),
+      input: request.input,
+      ...(request.description ? { description: request.description } : {}),
+    })
+  }
 }
 
 function getDesktopSlashCommand(content: string): ReturnType<typeof parseSlashCommand> {

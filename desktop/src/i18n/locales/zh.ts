@@ -1223,10 +1223,12 @@ export const zh: Record<TranslationKey, string> = {
   // ─── Ask User Question ──────────────────────────────────────
   'question.needsInput': 'Claude 需要你的输入',
   'question.answered': '已回答',
+  'question.completed': '已结束',
   'question.customResponse': '或输入自定义回复:',
   'question.typePlaceholder': '输入你的回答...',
   'question.submit': '提交',
   'question.answeredPrefix': '已回答: ',
+  'question.resultPrefix': '结果: ',
 
   // ─── Thinking Block ──────────────────────────────────────
   'thinking.label': '思考中',

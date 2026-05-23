@@ -89,21 +89,26 @@ export function AskUserQuestion({ sessionId, toolUseId, input, result }: Props) 
       ? answers as Record<string, string>
       : {}
   }, [result])
+  const resultText = typeof result === 'string' && result.trim().length > 0 ? result.trim() : ''
+  const hasStructuredAnswers = Object.keys(resultAnswers).length > 0
+  const hasTerminalResult = hasStructuredAnswers || resultText.length > 0
 
   const pendingRequest = pendingPermission?.toolUseId === toolUseId ? pendingPermission : null
   const answeredText = useMemo(() => {
-    if (Object.keys(resultAnswers).length > 0) {
+    if (hasStructuredAnswers) {
       return questions
         .map((question) => resultAnswers[question.question])
         .filter((answer): answer is string => typeof answer === 'string' && answer.trim().length > 0)
         .join(', ')
     }
+    if (resultText) return resultText
     return questions
       .map((question, index) => freeTexts[index]?.trim() || getSelectedAnswer(question, selections[index]))
       .filter(Boolean)
       .join('; ')
-  }, [freeTexts, questions, resultAnswers, selections])
-  const submitted = Object.keys(resultAnswers).length > 0 || hasSubmitted
+  }, [freeTexts, hasStructuredAnswers, questions, resultAnswers, resultText, selections])
+  const submitted = hasTerminalResult || hasSubmitted
+  const terminalWithoutAnswers = submitted && !hasStructuredAnswers && resultText.length > 0
 
   const handleSelect = (qIndex: number, label: string) => {
     if (submitted) return
@@ -221,7 +226,7 @@ export function AskUserQuestion({ sessionId, toolUseId, input, result }: Props) 
           </span>
           {submitted && (
             <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-[var(--color-surface-container-high)] text-[var(--color-text-tertiary)]">
-              {t('question.answered')}
+              {t(terminalWithoutAnswers ? 'question.completed' : 'question.answered')}
             </span>
           )}
         </div>
@@ -345,7 +350,7 @@ export function AskUserQuestion({ sessionId, toolUseId, input, result }: Props) 
           <div className="flex items-center gap-2 text-xs text-[var(--color-text-secondary)]">
             <span className="material-symbols-outlined text-[14px] text-[var(--color-success)]">check_circle</span>
             <span>
-              {t('question.answeredPrefix')}<strong>{answeredText}</strong>
+              {t(terminalWithoutAnswers ? 'question.resultPrefix' : 'question.answeredPrefix')}<strong>{answeredText}</strong>
             </span>
           </div>
         )}

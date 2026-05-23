@@ -351,6 +351,62 @@ describe('ConversationService', () => {
     })
   })
 
+  it('should expose live SDK permission requests for reconnecting clients', () => {
+    const svc = new ConversationService()
+
+    ;(svc as any).sessions.set('session-pending-permission', {
+      proc: { pid: 1 },
+      outputCallbacks: [],
+      workDir: process.cwd(),
+      permissionMode: 'default',
+      sdkToken: 'token',
+      sdkSocket: null,
+      pendingOutbound: [],
+      stderrLines: [],
+      sdkMessages: [],
+      initMessage: null,
+      pendingPermissionRequests: new Map(),
+    })
+
+    ;(svc as any).handleSdkPayload('session-pending-permission', JSON.stringify({
+      type: 'control_request',
+      request_id: 'request-ask-1',
+      request: {
+        subtype: 'can_use_tool',
+        tool_name: 'AskUserQuestion',
+        tool_use_id: 'tool-ask-1',
+        input: {
+          questions: [
+            {
+              header: 'Scope',
+              question: 'Which scope?',
+              options: [{ label: 'A', description: 'First' }, { label: 'B', description: 'Second' }],
+            },
+          ],
+        },
+        description: 'Answer questions?',
+      },
+    }))
+
+    expect(svc.getPendingPermissionRequests('session-pending-permission')).toEqual([
+      {
+        requestId: 'request-ask-1',
+        toolName: 'AskUserQuestion',
+        toolUseId: 'tool-ask-1',
+        input: {
+          questions: [
+            {
+              header: 'Scope',
+              question: 'Which scope?',
+              options: [{ label: 'A', description: 'First' }, { label: 'B', description: 'Second' }],
+            },
+          ],
+        },
+        description: 'Answer questions?',
+      },
+    ])
+  })
+
   it('should reconstruct usage and metadata from a persisted transcript', async () => {
     const previousConfigDir = process.env.CLAUDE_CONFIG_DIR
     const previousAnthropicApiKey = process.env.ANTHROPIC_API_KEY

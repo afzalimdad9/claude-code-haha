@@ -363,4 +363,36 @@ describe('AskUserQuestion', () => {
       },
     })
   })
+
+  it('renders aborted permission results as terminal instead of asking again', () => {
+    useChatStore.setState((state) => ({
+      sessions: {
+        ...state.sessions,
+        [ACTIVE_TAB]: {
+          ...state.sessions[ACTIVE_TAB]!,
+          pendingPermission: null,
+          chatState: 'idle',
+        },
+      },
+    }))
+
+    render(
+      <AskUserQuestion
+        toolUseId="tool-1"
+        input={{
+          questions: [
+            {
+              question: 'Which scope?',
+              options: [{ label: 'Single page' }, { label: 'Tabs' }],
+            },
+          ],
+        }}
+        result="Tool permission request failed: AbortError"
+      />,
+    )
+
+    expect(screen.queryByPlaceholderText('Type your answer...')).toBeNull()
+    expect(screen.queryByRole('button', { name: /submit/i })).toBeNull()
+    expect(screen.getByText(/Tool permission request failed: AbortError/)).toBeTruthy()
+  })
 })
