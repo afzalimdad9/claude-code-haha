@@ -3,12 +3,13 @@ import DOMPurify from 'dompurify'
 import mermaid from 'mermaid'
 import { Modal } from '../shared/Modal'
 import { CopyButton } from '../shared/CopyButton'
+import { useUIStore } from '../../stores/uiStore'
+import type { ThemeMode } from '../../types/settings'
 
 type Props = {
   code: string
 }
 
-let mermaidInitialized = false
 const MIN_PREVIEW_ZOOM = 0.5
 const MAX_PREVIEW_ZOOM = 3
 const PREVIEW_ZOOM_STEP = 0.25
@@ -26,16 +27,84 @@ type DragState = {
   scrollTop: number
 }
 
-function initMermaid() {
-  if (mermaidInitialized) return
+function rgbToHex(color: string, fallback: string) {
+  const trimmed = color.trim()
+  if (/^#[0-9a-f]{6}$/i.test(trimmed)) return trimmed
+  const shortHex = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(trimmed)
+  if (shortHex) {
+    return `#${shortHex[1]}${shortHex[1]}${shortHex[2]}${shortHex[2]}${shortHex[3]}${shortHex[3]}`
+  }
+
+  const rgb = /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/i.exec(trimmed)
+  if (!rgb) return fallback
+
+  return [rgb[1], rgb[2], rgb[3]]
+    .map((value) => {
+      const channel = Math.max(0, Math.min(255, Math.round(Number.parseFloat(value ?? '0'))))
+      return channel.toString(16).padStart(2, '0')
+    })
+    .join('')
+    .replace(/^/, '#')
+}
+
+function resolveThemeColor(token: string, fallback: string) {
+  if (typeof document === 'undefined') return fallback
+
+  const probe = document.createElement('span')
+  probe.style.color = `var(${token})`
+  probe.style.position = 'absolute'
+  probe.style.pointerEvents = 'none'
+  probe.style.opacity = '0'
+  document.body.appendChild(probe)
+  const resolved = getComputedStyle(probe).color
+  probe.remove()
+
+  return rgbToHex(resolved, fallback)
+}
+
+function initMermaid(theme: ThemeMode) {
+  const isDark = theme === 'dark'
+  const textColor = resolveThemeColor('--color-text-primary', isDark ? '#E5E2E1' : '#1B1C1A')
+  const mutedTextColor = resolveThemeColor('--color-text-secondary', isDark ? '#B7AAA5' : '#61514B')
+  const surfaceColor = resolveThemeColor('--color-surface-container-lowest', isDark ? '#0E0E0E' : '#FFFFFF')
+  const nodeColor = resolveThemeColor('--color-surface-container-low', isDark ? '#1C1B1B' : '#F4EFEA')
+  const accentColor = resolveThemeColor('--color-primary', isDark ? '#FFB59F' : '#8F482F')
+  const lineColor = resolveThemeColor('--color-outline', isDark ? '#8D7F7A' : '#87736D')
+
   mermaid.initialize({
     startOnLoad: false,
-    theme: 'default',
+    theme: 'base',
+    themeVariables: {
+      darkMode: isDark,
+      background: surfaceColor,
+      mainBkg: nodeColor,
+      primaryColor: nodeColor,
+      primaryTextColor: textColor,
+      primaryBorderColor: lineColor,
+      secondaryColor: surfaceColor,
+      tertiaryColor: surfaceColor,
+      textColor,
+      lineColor,
+      edgeLabelBackground: surfaceColor,
+      clusterBkg: surfaceColor,
+      clusterBorder: lineColor,
+      titleColor: textColor,
+      labelTextColor: textColor,
+      nodeTextColor: textColor,
+      noteTextColor: textColor,
+      noteBkgColor: surfaceColor,
+      noteBorderColor: lineColor,
+      actorTextColor: textColor,
+      actorLineColor: lineColor,
+      signalTextColor: textColor,
+      signalColor: mutedTextColor,
+      activationBkgColor: nodeColor,
+      activationBorderColor: accentColor,
+    },
     securityLevel: 'strict',
     suppressErrorRendering: true,
     fontFamily: 'var(--font-sans)',
   })
-  mermaidInitialized = true
 }
 
 let mermaidIdCounter = 0
@@ -92,6 +161,7 @@ function parseSvgMetrics(svg: string): SvgMetrics | null {
 }
 
 export function MermaidRenderer({ code }: Props) {
+  const theme = useUIStore((state) => state.theme)
   const containerRef = useRef<HTMLDivElement>(null)
   const previewViewportRef = useRef<HTMLDivElement>(null)
   const previewContentRef = useRef<HTMLDivElement>(null)
@@ -106,7 +176,7 @@ export function MermaidRenderer({ code }: Props) {
 
   useEffect(() => {
     let cancelled = false
-    initMermaid()
+    initMermaid(theme)
 
     const id = `mermaid-${++mermaidIdCounter}`
 
@@ -126,7 +196,7 @@ export function MermaidRenderer({ code }: Props) {
     )
 
     return () => { cancelled = true }
-  }, [code])
+  }, [code, theme])
 
   const handlePreview = useCallback(() => setPreviewOpen(true), [])
   const handlePreviewClose = useCallback(() => setPreviewOpen(false), [])
@@ -279,7 +349,8 @@ export function MermaidRenderer({ code }: Props) {
         {/* Diagram */}
         <div
           ref={containerRef}
-          className="flex items-center justify-center overflow-auto bg-white p-4 cursor-pointer"
+          data-testid="mermaid-diagram-surface"
+          className="flex items-center justify-center overflow-auto bg-[var(--color-surface-container-lowest)] p-4 cursor-pointer"
           style={{ maxHeight: 400 }}
           onClick={handlePreview}
           dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(svg, { USE_PROFILES: { svg: true, svgFilters: true } }) }}
@@ -329,7 +400,7 @@ export function MermaidRenderer({ code }: Props) {
           <div
             ref={previewViewportRef}
             data-testid="mermaid-preview-viewport"
-            className="overflow-auto rounded-xl bg-white"
+            className="overflow-auto rounded-xl bg-[var(--color-surface-container-lowest)]"
             style={{
               maxHeight: '75vh',
               cursor: isDraggingPreview ? 'grabbing' : 'grab',

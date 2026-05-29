@@ -15,9 +15,11 @@ vi.mock('mermaid', () => ({
 }))
 
 import { MermaidRenderer } from './MermaidRenderer'
+import { useUIStore } from '../../stores/uiStore'
 
 describe('MermaidRenderer', () => {
   beforeEach(() => {
+    useUIStore.setState({ theme: 'white' })
     initializeMock.mockReset()
     renderMock.mockReset()
     renderMock.mockResolvedValue({
@@ -31,8 +33,11 @@ describe('MermaidRenderer', () => {
     const previewButton = await screen.findByRole('button', { name: /preview/i })
     expect(previewButton).toBeInTheDocument()
     expect(initializeMock).toHaveBeenCalledWith(expect.objectContaining({
+      theme: 'base',
+      themeVariables: expect.objectContaining({ darkMode: false }),
       suppressErrorRendering: true,
     }))
+    expect(screen.getByTestId('mermaid-diagram-surface').className).toContain('bg-[var(--color-surface-container-lowest)]')
 
     fireEvent.click(previewButton)
 
@@ -54,6 +59,19 @@ describe('MermaidRenderer', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: '100%' })).toBeInTheDocument()
     })
+  })
+
+  it('uses dark Mermaid theme variables when the app is in dark mode', async () => {
+    useUIStore.setState({ theme: 'dark' })
+
+    render(<MermaidRenderer code={'graph TB\nA-->B'} />)
+
+    await screen.findByRole('button', { name: /preview/i })
+
+    expect(initializeMock).toHaveBeenCalledWith(expect.objectContaining({
+      theme: 'base',
+      themeVariables: expect.objectContaining({ darkMode: true }),
+    }))
   })
 
   it('enters and exits dragging state while panning the preview viewport', async () => {
