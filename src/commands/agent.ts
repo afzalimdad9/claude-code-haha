@@ -1,5 +1,7 @@
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/messages.js'
 import type { Command } from '../commands.js'
+import { AGENT_TOOL_NAME } from '../tools/AgentTool/constants.js'
+import { MalformedCommandError } from '../utils/errors.js'
 
 export type ParsedAgentCommandArgs = {
   agentType: string
@@ -26,13 +28,22 @@ const agentCommand: Command = {
   progressMessage: 'running agent',
   contentLength: 0,
   source: 'builtin',
-  context: 'fork',
+  allowedTools: [AGENT_TOOL_NAME],
   async getPromptForCommand(args): Promise<ContentBlockParam[]> {
     const parsed = parseAgentCommandArgs(args)
+    if (!parsed) {
+      throw new MalformedCommandError('Usage: /agent <agent> <prompt>')
+    }
+
     return [
       {
         type: 'text',
-        text: parsed?.prompt ?? args.trim(),
+        text: [
+          `Use the ${AGENT_TOOL_NAME} tool with subagent_type "${parsed.agentType}" to handle this request.`,
+          'Pass this exact prompt to that agent:',
+          '',
+          parsed.prompt,
+        ].join('\n'),
       },
     ]
   },

@@ -14,9 +14,23 @@ describe('/agent command', () => {
     expect(parseAgentCommandArgs('debugger')).toBeNull()
   })
 
-  test('passes only the prompt body to forked execution', async () => {
+  test('instructs the normal chat loop to use the selected agent', async () => {
     await expect(agentCommand.getPromptForCommand('debugger inspect auth', {} as never)).resolves.toEqual([
-      { type: 'text', text: 'inspect auth' },
+      {
+        type: 'text',
+        text: [
+          'Use the Agent tool with subagent_type "debugger" to handle this request.',
+          'Pass this exact prompt to that agent:',
+          '',
+          'inspect auth',
+        ].join('\n'),
+      },
     ])
+  })
+
+  test('shows usage when building a prompt without an agent prompt', async () => {
+    await expect(agentCommand.getPromptForCommand('debugger', {} as never)).rejects.toThrow(
+      'Usage: /agent <agent> <prompt>',
+    )
   })
 })

@@ -74,12 +74,10 @@ import {
 } from './utils/processUserInput/processUserInput.js'
 import { fetchSystemPromptParts } from './utils/queryContext.js'
 import { setCwd } from './utils/Shell.js'
-import { drainSdkEvents } from './utils/sdkEventQueue.js'
 import {
   flushSessionStorage,
   recordTranscript,
 } from './utils/sessionStorage.js'
-import { sleep } from './utils/sleep.js'
 import { asSystemPrompt } from './utils/systemPromptType.js'
 import { resolveThemeSetting } from './utils/systemTheme.js'
 import {
@@ -121,8 +119,6 @@ const getCoordinatorUserContext: (
   ? require('./coordinator/coordinatorMode.js').getCoordinatorUserContext
   : () => ({})
 /* eslint-enable @typescript-eslint/no-require-imports */
-
-const PRE_QUERY_SDK_EVENT_DRAIN_INTERVAL_MS = 100
 
 // Dead code elimination: conditional import for snip compaction
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -414,7 +410,13 @@ export class QueryEngine {
       }
     }
 
-    const processUserInputPromise = processUserInput({
+    const {
+      messages: messagesFromUserInput,
+      shouldQuery,
+      allowedTools,
+      model: modelFromUserInput,
+      resultText,
+    }: ProcessUserInputBaseResult = await processUserInput({
       input: prompt,
       mode: 'prompt',
       setToolJSX: () => {},
@@ -427,36 +429,6 @@ export class QueryEngine {
       isMeta: options?.isMeta,
       querySource: 'sdk',
     })
-      .then(
-        value => ({ ok: true as const, value }),
-        error => ({ ok: false as const, error }),
-      )
-
-    let processUserInputOutcome: Awaited<typeof processUserInputPromise> | null = null
-    while (!processUserInputOutcome) {
-      const outcome = await Promise.race([
-        processUserInputPromise,
-        sleep(PRE_QUERY_SDK_EVENT_DRAIN_INTERVAL_MS).then(() => null),
-      ])
-      for (const event of drainSdkEvents()) {
-        yield event
-      }
-      if (outcome) {
-        processUserInputOutcome = outcome
-      }
-    }
-
-    if (!processUserInputOutcome.ok) {
-      throw processUserInputOutcome.error
-    }
-
-    const {
-      messages: messagesFromUserInput,
-      shouldQuery,
-      allowedTools,
-      model: modelFromUserInput,
-      resultText,
-    }: ProcessUserInputBaseResult = processUserInputOutcome.value
 
     // Push new messages, including user input and any attachments
     this.mutableMessages.push(...messagesFromUserInput)

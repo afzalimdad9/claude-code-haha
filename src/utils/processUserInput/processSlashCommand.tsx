@@ -2,7 +2,6 @@ import { feature } from 'bun:bundle';
 import type { ContentBlockParam, TextBlockParam } from '@anthropic-ai/sdk/resources';
 import { randomUUID } from 'crypto';
 import { setPromptId } from 'src/bootstrap/state.js';
-import { parseAgentCommandArgs } from 'src/commands/agent.js';
 import { builtInCommandNames, type Command, type CommandBase, findCommand, getCommand, getCommandName, hasCommand, type PromptCommand } from 'src/commands.js';
 import { NO_CONTENT_MESSAGE } from 'src/constants/messages.js';
 import type { SetToolJSXFn, ToolUseContext } from 'src/Tool.js';
@@ -39,7 +38,6 @@ import { hasPermissionsToUseTool } from '../permissions/permissions.js';
 import { isOfficialMarketplaceName, parsePluginIdentifier } from '../plugins/pluginIdentifier.js';
 import { isRestrictedToPluginOnly, isSourceAdminTrusted } from '../settings/pluginOnlyPolicy.js';
 import { parseSlashCommand } from '../slashCommandParsing.js';
-import { enqueueSdkEvent } from '../sdkEventQueue.js';
 import { sleep } from '../sleep.js';
 import { recordSkillUsage } from '../suggestions/skillUsageTracking.js';
 import { logOTelEvent, redactIfDisabled } from '../telemetry/events.js';
@@ -63,10 +61,6 @@ const MCP_SETTLE_TIMEOUT_MS = 10_000;
  */
 async function executeForkedSlashCommand(command: CommandBase & PromptCommand, args: string, context: ProcessUserInputContext, precedingInputBlocks: ContentBlockParam[], setToolJSX: SetToolJSXFn, canUseTool: CanUseToolFn): Promise<SlashCommandResult> {
   const agentId = createAgentId();
-  const dynamicAgentCommand = command.name === 'agent' ? parseAgentCommandArgs(args) : null;
-  if (command.name === 'agent' && !dynamicAgentCommand) {
-    throw new MalformedCommandError('Usage: /agent <agent> <prompt>');
-  }
   const pluginMarketplace = command.pluginInfo ? parsePluginIdentifier(command.pluginInfo.repository).marketplace : undefined;
   logEvent('tengu_slash_command_forked', {
     command_name: command.name as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
@@ -84,10 +78,7 @@ async function executeForkedSlashCommand(command: CommandBase & PromptCommand, a
     modifiedGetAppState,
     baseAgent,
     promptMessages
-  } = await prepareForkedCommandContext(command, args, context, dynamicAgentCommand ? {
-    agentType: dynamicAgentCommand.agentType,
-    requireAgentType: true
-  } : undefined);
+  } = await prepareForkedCommandContext(command, args, context);
 
   // Merge skill's effort into the agent definition so runAgent applies it
   const agentDefinition = command.effort !== undefined ? {
@@ -198,26 +189,6 @@ async function executeForkedSlashCommand(command: CommandBase & PromptCommand, a
   const progressMessages: ProgressMessage<AgentProgress>[] = [];
   const parentToolUseID = `forked-command-${command.name}`;
   let toolUseCounter = 0;
-  const shouldEmitAgentTaskEvents = command.name === 'agent' && dynamicAgentCommand !== null;
-  const sdkTaskId = shouldEmitAgentTaskEvents ? `slash-agent-${agentId}` : null;
-  const sdkToolUseId = shouldEmitAgentTaskEvents ? `${parentToolUseID}-${agentId}` : undefined;
-  const sdkDescription = dynamicAgentCommand ? `Agent ${dynamicAgentCommand.agentType}` : `/${getCommandName(command)}`;
-  const sdkPrompt = dynamicAgentCommand?.prompt ?? args;
-  const sdkStartTime = Date.now();
-  let sdkProgressTokens = 0;
-  let sdkToolUses = 0;
-
-  if (sdkTaskId) {
-    enqueueSdkEvent({
-      type: 'system',
-      subtype: 'task_started',
-      task_id: sdkTaskId,
-      tool_use_id: sdkToolUseId,
-      description: sdkDescription,
-      task_type: 'slash_agent',
-      prompt: sdkPrompt
-    });
-  }
 
   // Helper to create a progress message from an agent message
   const createProgressMessage = (message: AssistantMessage | NormalizedUserMessage): ProgressMessage<AgentProgress> => {
@@ -247,28 +218,6 @@ async function executeForkedSlashCommand(command: CommandBase & PromptCommand, a
       shouldHidePromptInput: false,
       shouldContinueAnimation: true,
       showSpinner: true
-    });
-  };
-
-  const emitAgentTaskProgress = (message: AssistantMessage | NormalizedUserMessage): void => {
-    if (!sdkTaskId) return;
-    const summary = summarizeAgentProgressMessage(message);
-    sdkProgressTokens += getApproximateMessageTokenCount(message);
-    sdkToolUses += countAgentToolUses(message);
-    enqueueSdkEvent({
-      type: 'system',
-      subtype: 'task_progress',
-      task_id: sdkTaskId,
-      tool_use_id: sdkToolUseId,
-      task_type: 'slash_agent',
-      description: sdkDescription,
-      summary: summary.summary,
-      last_tool_name: summary.lastToolName,
-      usage: {
-        total_tokens: sdkProgressTokens,
-        tool_uses: sdkToolUses,
-        duration_ms: Date.now() - sdkStartTime
-      }
     });
   };
 
@@ -303,7 +252,6 @@ async function executeForkedSlashCommand(command: CommandBase & PromptCommand, a
         const normalizedMsg = normalizedNew[0];
         if (normalizedMsg && normalizedMsg.type === 'assistant') {
           progressMessages.push(createProgressMessage(message));
-          emitAgentTaskProgress(message);
           updateProgress();
         }
       }
@@ -313,30 +261,11 @@ async function executeForkedSlashCommand(command: CommandBase & PromptCommand, a
         const normalizedMsg = normalizedNew[0];
         if (normalizedMsg && normalizedMsg.type === 'user') {
           progressMessages.push(createProgressMessage(normalizedMsg));
-          emitAgentTaskProgress(normalizedMsg);
           updateProgress();
         }
       }
     }
   } catch (err) {
-    if (sdkTaskId) {
-      enqueueSdkEvent({
-        type: 'system',
-        subtype: 'task_notification',
-        task_id: sdkTaskId,
-        tool_use_id: sdkToolUseId,
-        task_type: 'slash_agent',
-        status: 'failed',
-        output_file: '',
-        summary: `${sdkDescription} failed`,
-        result: err instanceof Error ? err.message : String(err),
-        usage: {
-          total_tokens: sdkProgressTokens,
-          tool_uses: sdkToolUses,
-          duration_ms: Date.now() - sdkStartTime
-        }
-      });
-    }
     throw err;
   } finally {
     // Clear the progress display
@@ -348,25 +277,6 @@ async function executeForkedSlashCommand(command: CommandBase & PromptCommand, a
   // Prepend debug log for ant users so it appears inside the command output
   if ("external" === 'ant') {
     resultText = `[ANT-ONLY] API calls: ${getDisplayPath(getDumpPromptsPath(agentId))}\n${resultText}`;
-  }
-
-  if (sdkTaskId) {
-    enqueueSdkEvent({
-      type: 'system',
-      subtype: 'task_notification',
-      task_id: sdkTaskId,
-      tool_use_id: sdkToolUseId,
-      task_type: 'slash_agent',
-      status: 'completed',
-      output_file: '',
-      summary: `${sdkDescription} completed`,
-      result: resultText,
-      usage: {
-        total_tokens: sdkProgressTokens,
-        tool_uses: sdkToolUses,
-        duration_ms: Date.now() - sdkStartTime
-      }
-    });
   }
 
   // Return the result as a user message (simulates the agent's output)
@@ -397,61 +307,6 @@ export function looksLikeCommand(commandName: string): boolean {
   // Command names should only contain [a-zA-Z0-9:_-]
   // If it contains other characters, it's probably a file path or other input
   return !/[^a-zA-Z0-9:\-_]/.test(commandName);
-}
-
-function summarizeAgentProgressMessage(message: AssistantMessage | NormalizedUserMessage): { summary: string; lastToolName?: string } {
-  const content = message.message.content;
-  const blocks = Array.isArray(content) ? content : [{
-    type: 'text',
-    text: typeof content === 'string' ? content : ''
-  }];
-  let firstText: string | null = null;
-  let lastToolName: string | undefined;
-
-  for (const block of blocks) {
-    if (!block || typeof block !== 'object') continue;
-    const typedBlock = block as { type?: unknown; text?: unknown; name?: unknown };
-    if (typedBlock.type === 'tool_use' && typeof typedBlock.name === 'string') {
-      lastToolName = typedBlock.name;
-    }
-    if (!firstText && typedBlock.type === 'text' && typeof typedBlock.text === 'string') {
-      firstText = typedBlock.text.trim();
-    }
-  }
-
-  if (lastToolName) return { summary: `Using ${lastToolName}`, lastToolName };
-  if (firstText) return { summary: truncateProgressSummary(firstText) };
-  return { summary: 'Agent is working' };
-}
-
-function getApproximateMessageTokenCount(message: AssistantMessage | NormalizedUserMessage): number {
-  const content = message.message.content;
-  if (typeof content === 'string') return Math.ceil(content.length / 4);
-  if (!Array.isArray(content)) return 0;
-  const textLength = content.reduce((total, block) => {
-    if (!block || typeof block !== 'object') return total;
-    const text = (block as { text?: unknown; content?: unknown }).text;
-    if (typeof text === 'string') return total + text.length;
-    const nestedContent = (block as { content?: unknown }).content;
-    if (typeof nestedContent === 'string') return total + nestedContent.length;
-    return total;
-  }, 0);
-  return Math.ceil(textLength / 4);
-}
-
-function countAgentToolUses(message: AssistantMessage | NormalizedUserMessage): number {
-  const content = message.message.content;
-  if (!Array.isArray(content)) return 0;
-  return content.filter(block => {
-    if (!block || typeof block !== 'object') return false;
-    return (block as { type?: unknown }).type === 'tool_use';
-  }).length;
-}
-
-function truncateProgressSummary(text: string): string {
-  const normalized = text.replace(/\s+/g, ' ').trim();
-  if (normalized.length <= 120) return normalized;
-  return `${normalized.slice(0, 117)}...`;
 }
 
 export async function processSlashCommand(inputString: string, precedingInputBlocks: ContentBlockParam[], imageContentBlocks: ContentBlockParam[], attachmentMessages: AttachmentMessage[], context: ProcessUserInputContext, setToolJSX: SetToolJSXFn, uuid?: string, isAlreadyProcessing?: boolean, canUseTool?: CanUseToolFn): Promise<ProcessUserInputBaseResult> {
